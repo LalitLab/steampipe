@@ -27,6 +27,7 @@ import (
 // to facilitate interactive query prompt
 type InteractiveClient struct {
 	client                  *Client
+	clientReadyChannel      chan bool
 	resultsStreamer         *queryresult.ResultStreamer
 	workspace               NamedQueryProvider
 	interactiveBuffer       []string
@@ -36,9 +37,10 @@ type InteractiveClient struct {
 	activeQueryCancelFunc   context.CancelFunc
 }
 
-func newInteractiveClient(workspace NamedQueryProvider, client *Client, resultsStreamer *queryresult.ResultStreamer) (*InteractiveClient, error) {
+func newInteractiveClient(workspace NamedQueryProvider, client *Client, resultsStreamer *queryresult.ResultStreamer, clientReadyChannel chan bool) (*InteractiveClient, error) {
 	return &InteractiveClient{
 		client:                  client,
+		clientReadyChannel:      clientReadyChannel,
 		resultsStreamer:         resultsStreamer,
 		workspace:               workspace,
 		interactiveQueryHistory: queryhistory.New(),
@@ -119,8 +121,18 @@ func (c *InteractiveClient) runInteractivePrompt() (ret utils.InteractiveExitSta
 		}
 	}()
 
-	callExecutor := func(line string) { c.executor(line) }
-	completer := func(d prompt.Document) []prompt.Suggest { return c.queryCompleter(d, c.client.schemaMetadata) }
+	callExecutor := func(line string) {
+		c.executor(line)
+	}
+	completer := func(d prompt.Document) []prompt.Suggest {
+		select {
+		case <-c.clientReadyChannel:
+			return c.queryCompleter(d, c.client.schemaMetadata)
+		default:
+			// return nothing
+			return []prompt.Suggest{}
+		}
+	}
 	c.interactivePrompt = prompt.New(
 		callExecutor,
 		completer,
@@ -241,6 +253,9 @@ func (c *InteractiveClient) executor(line string) {
 	if strings.TrimSpace(query) == ";" {
 		c.restartInteractiveSession()
 	}
+
+	// wait for the client to have booted up
+	<-c.clientReadyChannel
 
 	if metaquery.IsMetaQuery(query) {
 		if err := c.executeMetaquery(query); err != nil {

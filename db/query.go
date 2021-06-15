@@ -3,10 +3,8 @@ package db
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 
-	"github.com/turbot/steampipe/constants"
 	"github.com/turbot/steampipe/query/queryresult"
 	"github.com/turbot/steampipe/utils"
 )
@@ -23,9 +21,9 @@ func EnsureDbAndStartService(invoker Invoker) error {
 		return errors.New("could not retrieve service status")
 	}
 
-	if status != nil && status.Invoker != InvokerService {
-		return fmt.Errorf("You already have a %s session open. To run multiple sessions, first run %s.\nTo kill existing sessions run %s", constants.Bold(fmt.Sprintf("steampipe %s", status.Invoker)), constants.Bold("steampipe service start"), constants.Bold("steampipe service stop --force"))
-	}
+	// if status != nil && status.Invoker != InvokerService {
+	// 	return fmt.Errorf("You already have a %s session open. To run multiple sessions, first run %s.\nTo kill existing sessions run %s", constants.Bold(fmt.Sprintf("steampipe %s", status.Invoker)), constants.Bold("steampipe service start"), constants.Bold("steampipe service stop --force"))
+	// }
 
 	if status == nil {
 		// the db service is not started - start it
@@ -35,10 +33,10 @@ func EnsureDbAndStartService(invoker Invoker) error {
 }
 
 // RunInteractivePrompt :: start the interactive query prompt
-func RunInteractivePrompt(workspace NamedQueryProvider, client *Client) (*queryresult.ResultStreamer, error) {
+func RunInteractivePrompt(workspace NamedQueryProvider, client *Client, clientReadyChannel chan bool) (*queryresult.ResultStreamer, error) {
 	resultsStreamer := queryresult.NewResultStreamer()
 
-	interactiveClient, err := newInteractiveClient(workspace, client, resultsStreamer)
+	interactiveClient, err := newInteractiveClient(workspace, client, resultsStreamer, clientReadyChannel)
 	if err != nil {
 		utils.ShowErrorWithMessage(err, "interactive client failed to initialize")
 		Shutdown(client, InvokerQuery)

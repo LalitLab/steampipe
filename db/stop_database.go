@@ -34,15 +34,34 @@ const (
 func Shutdown(client *Client, invoker Invoker) {
 	utils.LogTime("db.Shutdown start")
 	defer utils.LogTime("db.Shutdown end")
-	log.Println("[TRACE] shutdown")
+
 	if client != nil {
 		client.Close()
 	}
 
 	status, _ := GetStatus()
 
-	// force stop if the service was invoked by the same invoker and we are the last one
-	if status != nil && status.Invoker == invoker {
+	if status != nil {
+		rootClient, err := createSteampipeRootDbClient()
+
+		if err != nil {
+			return
+		}
+
+		row := rootClient.QueryRow("select count(*) from pg_stat_activity where client_port IS NOT NULL and application_name='steampipe' and backend_type='client backend';")
+
+		count := 0
+		row.Scan(&count)
+		rootClient.Close()
+
+		if count > 1 {
+			// there are other clients connected to the database
+			// hint a shutdown and get out
+			HintStopDB()
+			return
+		}
+
+		// we can shutdown the database
 		status, err := StopDB(false, invoker)
 		if err != nil {
 			utils.ShowError(err)
@@ -53,9 +72,58 @@ func Shutdown(client *Client, invoker Invoker) {
 	}
 }
 
+// HintStopDB sends a Smart Shutdown signal to the database
+// this enables the database to shutdown if and only if there are no
+// active connections to the database.
+// The database does not allow new connections and waits for all
+// active connections to disconnect before shutting down
+func HintStopDB() (StopStatus, error) {
+	utils.LogTime("db.HintStopDB start")
+	defer utils.LogTime("db.HintStopDB end")
+
+	info, err := loadRunningInstanceInfo()
+	if err != nil {
+		return ServiceStopFailed, err
+	}
+	if info == nil {
+		// we do not have a info file
+		return ServiceNotRunning, nil
+	}
+
+	doesPidExist, err := psutils.PidExists(int32(info.Pid))
+
+	if err != nil {
+		return ServiceStopFailed, err
+	}
+
+	if !doesPidExist {
+		// nothing to do here
+		return ServiceNotRunning, nil
+	}
+
+	process, err := os.FindProcess(info.Pid)
+	if err != nil {
+		return ServiceStopFailed, err
+	}
+
+	// we need to do this since the standard
+	// cmd.Process.Kill() sends a SIGKILL which
+	// makes PG terminate immediately without saving state.
+	// refer: https://www.postgresql.org/docs/12/server-shutdown.html
+	// refer: https://golang.org/src/os/exec_posix.go?h=kill#L65
+	err = process.Signal(syscall.SIGTERM)
+	if err != nil {
+		return ServiceStopFailed, err
+	}
+	return ServiceStopped, nil
+}
+
 // StopDB :: search and stop the running instance. Does nothing if an instance was not found
 func StopDB(force bool, invoker Invoker) (StopStatus, error) {
 	log.Println("[TRACE] StopDB", force)
+
+	utils.LogTime("db.StopDB start")
+	defer utils.LogTime("db.StopDB end")
 
 	if force {
 		// remove this file regardless of whether
