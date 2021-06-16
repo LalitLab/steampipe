@@ -22,5 +22,6 @@ func (j *CSVFormatter) Format(_ context.Context, tree *execute.ExecutionTree) (i
 	data := renderer.Render(tree)
 	j.csvWriter.Write(resultColumns.AllColumns)
 	j.csvWriter.WriteAll(data)
-	return strings.NewReader(outBuffer.String()), nil
+	res := strings.NewReader(outBuffer.String())
+	return res, nil
 }
