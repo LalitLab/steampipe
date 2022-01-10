@@ -29,7 +29,7 @@ require (
 	github.com/golang/protobuf v1.5.2
 	github.com/google/uuid v1.3.0
 	github.com/gorilla/websocket v1.4.2 // indirect
-	github.com/hashicorp/go-cleanhttp v0.5.1
+	github.com/hashicorp/go-cleanhttp v0.5.2
 	github.com/hashicorp/go-hclog v0.15.0
 	github.com/hashicorp/go-plugin v1.4.1
 	github.com/hashicorp/go-version v1.3.0
